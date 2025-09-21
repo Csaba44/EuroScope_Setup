@@ -1,127 +1,93 @@
-﻿using System.Diagnostics;
-using System.Drawing;
-using System.IO;
-using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Text;
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-
 
 namespace EuroScope_Setup
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
-
-        public static (double Latitude, double Longitude) ConvertDmsToDecimal(string dmsCoord)
+        public class Coordinate
         {
-            // N047.26.15.993 -> 47.437775833
-            // E019.15.55.278 -> 19.265355
+            public double Lat { get; set; }
+            public double Lon { get; set; }
 
-            try
+            public Coordinate(double lat, double lon)
             {
-                string direction = dmsCoord.Substring(0, 1);
-                string rest = dmsCoord.Substring(1);
-
-                string[] parts = rest.Split('.');
-
-                if (parts.Length < 3)
-                    throw new ArgumentException("Érvénytelen DMS formátum");
-
-                int degrees = int.Parse(parts[0]);
-                int minutes = int.Parse(parts[1]);
-                double seconds = double.Parse(parts[2] + (parts.Length > 3 ? "." + parts[3] : ""));
-
-                double decimalValue = degrees + (minutes / 60.0) + (seconds / 3600.0);
-
-                if (direction == "S" || direction == "W")
-                    decimalValue = -decimalValue;
-
-                return (direction == "N" || direction == "S") ?
-                    (decimalValue, 0) : (0, decimalValue);
-            }
-            catch
-            {
-                throw new ArgumentException("Unknown coordinate format.");
+                Lat = lat;
+                Lon = lon;
             }
         }
 
-        public static (double Lat, double Lon) ParseCoordinates(string latDms, string lonDms)
+        (double px, double py) ToPixelEquirectangular(
+            double lat, double lon,
+            double centerLat, double centerLon,
+            int viewportWidth, int viewportHeight,
+            double radiusMeters)
         {
-            var lat = ConvertDmsToDecimal(latDms);
-            var lon = ConvertDmsToDecimal(lonDms);
+            // Calculate meters per degree at center latitude
+            void MetersPerDegree(double latDeg, out double mPerDegLat, out double mPerDegLon)
+            {
+                double latRad = Math.PI * latDeg / 180.0;
+                mPerDegLat = 111132.954 - 559.822 * Math.Cos(2 * latRad) + 1.175 * Math.Cos(4 * latRad);
+                mPerDegLon = (Math.PI / 180.0) * 6378137.0 * Math.Cos(latRad);
+            }
 
-            return (lat.Latitude, lon.Longitude);
+            // Calculate distance from center in meters
+            MetersPerDegree(centerLat, out double mLat, out double mLon);
+            double dxMeters = (lon - centerLon) * mLon; // meters east
+            double dyMeters = (lat - centerLat) * mLat; // meters north
+
+            // Calculate meters per pixel
+            double halfViewPx = Math.Min(viewportWidth, viewportHeight) / 2.0;
+            double metersPerPixel = radiusMeters / halfViewPx;
+
+            // Convert to pixel coordinates
+            double px = viewportWidth / 2.0 + (dxMeters / metersPerPixel);
+            double py = viewportHeight / 2.0 - (dyMeters / metersPerPixel);
+
+            return (px, py);
         }
-
-
-        public static double DegreesToRadians(double degrees)
-        {
-            return degrees * (Math.PI / 180.0);
-        }
-
 
         public MainWindow()
         {
             InitializeComponent();
+
             var coordinates = new List<(double Lat, double Lon, string Name)>
             {
-                (40.712776, -74.005974, "New York"),
-                (35.689487, 139.691711, "Tokió"),
-                (48.856613, 2.352222, "Párizs"),
-                (-23.550520, -46.633308, "São Paulo"),
-                (-33.868820, 151.209290, "Sydney")
+                (47.430571802977056, 19.249855532823133, "31L"),
+                (47.4486356747824, 19.221007125800583, "13R"),
+                (47.445485782872424, 19.257853953044314, "13L"),
+                (47.42314421475645, 19.29364357764242, "31R"),
+                (47.4386376244894, 19.25703634696732, "TWR"),
             };
 
-
+            var centerCoordinate = new Coordinate(47.43292231467408, 19.261434807795617);
+            double radiusMeters = 2000;
             int width = 1280;
             int height = 720;
 
-
-
-            for (int i = 0; i < coordinates.Count; i++)
+            foreach (var coord in coordinates)
             {
-                var coord = coordinates[i];
-
-                double radius = width / (2 * Math.PI);
-                const int FE = 180;
-
-                double lonRad = DegreesToRadians(coord.Lon + FE);
-                double x = lonRad * radius;
-
-                double latRad = DegreesToRadians(coord.Lat);
-                double verticalOffsetFromEquator = radius * Math.Log(Math.Tan(Math.PI / 4 + latRad / 2));
-
-                double y = height / 2 - verticalOffsetFromEquator;
-                  
-
-
+                var locOnScreen = ToPixelEquirectangular(
+                    coord.Lat, coord.Lon,
+                    centerCoordinate.Lat, centerCoordinate.Lon,
+                    width, height, radiusMeters);
 
                 Label lbl = new Label
                 {
                     Content = coord.Name,
                     Foreground = Brushes.Red,
                     Background = Brushes.Transparent,
-                    FontSize = 15,
-                    Margin = new Thickness(x, y, 0, 0),
+                    FontSize = 20,
+                    Margin = new Thickness(locOnScreen.px, locOnScreen.py, 0, 0),
                 };
 
                 MapProjection.Children.Add(lbl);
-
-                Trace.WriteLine($"{x} {y}");
+                Trace.WriteLine($"{coord.Name}: {locOnScreen.px:F1}, {locOnScreen.py:F1}");
             }
-
-
         }
     }
 }
