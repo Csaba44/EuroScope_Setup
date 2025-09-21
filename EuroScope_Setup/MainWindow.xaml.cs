@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Shapes;
 
 namespace EuroScope_Setup
 {
@@ -21,6 +23,71 @@ namespace EuroScope_Setup
             }
         }
 
+        // Function to convert DMS (Degrees, Minutes, Seconds) to decimal degrees
+        double DmsToDecimal(string dmsString)
+        {
+            // Remove N/S/E/W prefix and split by dots
+            string cleanString = dmsString.Substring(1);
+            string[] parts = cleanString.Split('.');
+
+            if (parts.Length != 4)
+                throw new ArgumentException("Invalid DMS format");
+
+            // Parse degrees, minutes, seconds
+            int degrees = int.Parse(parts[0]);
+            int minutes = int.Parse(parts[1]);
+            double seconds = double.Parse(parts[2] + "." + parts[3], CultureInfo.InvariantCulture);
+
+            // Calculate decimal degrees
+            double decimalDegrees = degrees + (minutes / 60.0) + (seconds / 3600.0);
+
+            // Apply sign based on direction (N/E = positive, S/W = negative)
+            if (dmsString.StartsWith("S") || dmsString.StartsWith("W"))
+                decimalDegrees = -decimalDegrees;
+
+            return decimalDegrees;
+        }
+
+        // Function to parse the coordinate data
+        List<Coordinate> ParseCoordinates(string[] coordinateLines)
+        {
+            var coordinates = new List<Coordinate>();
+
+            foreach (string line in coordinateLines)
+            {
+                string trimmedLine = line.Trim();
+                if (string.IsNullOrEmpty(trimmedLine)) continue;
+
+                // Split by space and find the coordinate parts
+                string[] parts = trimmedLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+                if (parts.Length >= 2)
+                {
+                    // The last two parts should be the coordinates
+                    string latString = parts[parts.Length - 2];
+                    string lonString = parts[parts.Length - 1];
+
+                    if (latString.StartsWith("N") || latString.StartsWith("S") &&
+                        lonString.StartsWith("E") || lonString.StartsWith("W"))
+                    {
+                        try
+                        {
+                            double lat = DmsToDecimal(latString);
+                            double lon = DmsToDecimal(lonString);
+                            coordinates.Add(new Coordinate(lat, lon));
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.WriteLine($"Error parsing coordinates: {latString} {lonString} - {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            return coordinates;
+        }
+
+        // Function to convert geographic coordinates to pixel coordinates
         (double px, double py) ToPixelEquirectangular(
             double lat, double lon,
             double centerLat, double centerLon,
@@ -51,24 +118,27 @@ namespace EuroScope_Setup
             return (px, py);
         }
 
+        string[] readCoordinates(string filename)
+        {
+            string[] coordinateData = File.ReadAllLines(filename);
+            return coordinateData;
+            
+        } 
+
         public MainWindow()
         {
             InitializeComponent();
 
-            var coordinates = new List<(double Lat, double Lon, string Name)>
-            {
-                (47.430571802977056, 19.249855532823133, "31L"),
-                (47.4486356747824, 19.221007125800583, "13R"),
-                (47.445485782872424, 19.257853953044314, "13L"),
-                (47.42314421475645, 19.29364357764242, "31R"),
-                (47.4386376244894, 19.25703634696732, "TWR"),
-            };
+            string[] coordinateData = readCoordinates("coords.txt");
+
+            List<Coordinate> coordinates = ParseCoordinates(coordinateData);
 
             var centerCoordinate = new Coordinate(47.43292231467408, 19.261434807795617);
             double radiusMeters = 2000;
             int width = 1280;
             int height = 720;
 
+            var screenCoords = new List<Point>();
             foreach (var coord in coordinates)
             {
                 var locOnScreen = ToPixelEquirectangular(
@@ -76,18 +146,38 @@ namespace EuroScope_Setup
                     centerCoordinate.Lat, centerCoordinate.Lon,
                     width, height, radiusMeters);
 
-                Label lbl = new Label
-                {
-                    Content = coord.Name,
-                    Foreground = Brushes.Red,
-                    Background = Brushes.Transparent,
-                    FontSize = 20,
-                    Margin = new Thickness(locOnScreen.px, locOnScreen.py, 0, 0),
-                };
-
-                MapProjection.Children.Add(lbl);
-                Trace.WriteLine($"{coord.Name}: {locOnScreen.px:F1}, {locOnScreen.py:F1}");
+                screenCoords.Add(new Point(locOnScreen.px, locOnScreen.py));
+                Console.WriteLine($"Lat: {coord.Lat:F9}, Lon: {coord.Lon:F9} -> X: {locOnScreen.px:F1}, Y: {locOnScreen.py:F1}");
             }
+
+            var polygon1 = new Polygon();
+            polygon1.Stroke = Brushes.Gray;
+            polygon1.Fill = Brushes.Gray;
+            polygon1.StrokeThickness = 2;
+
+            var pointCollection1 = new PointCollection();
+            foreach (var screenCoord in screenCoords) 
+            {
+                pointCollection1.Add(screenCoord);
+            }
+            polygon1.Points = pointCollection1;
+
+            MapProjection.Children.Add(polygon1);
+
+            /*foreach (var screenCoord in screenCoords)
+            {
+                var marker = new Ellipse
+                {
+                    Width = 4,
+                    Height = 4,
+                    Fill = Brushes.Blue,
+                    Stroke = Brushes.DarkBlue,
+                    StrokeThickness = 1
+                };
+                Canvas.SetLeft(marker, screenCoord.X - 2);
+                Canvas.SetTop(marker, screenCoord.Y - 2);
+                MapProjection.Children.Add(marker);
+            }*/
         }
     }
 }
