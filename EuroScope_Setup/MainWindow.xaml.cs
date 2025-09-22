@@ -13,6 +13,8 @@ namespace EuroScope_Setup
 {
     public partial class MainWindow : Window
     {
+        public static Coordinate mapCenterCoordinate = new Coordinate(47.43566192997341, 19.25721003945266);
+        public static double mapRadiusMeters = 2000;
 
         public class RegionColor
         {
@@ -131,7 +133,7 @@ namespace EuroScope_Setup
             double lat, double lon,
             double centerLat, double centerLon,
             int viewportWidth, int viewportHeight,
-            double radiusMeters)
+            double mapRadiusMeters)
         {
             // Calculate meters per degree at center latitude
             void MetersPerDegree(double latDeg, out double mPerDegLat, out double mPerDegLon)
@@ -148,13 +150,46 @@ namespace EuroScope_Setup
 
             // Calculate meters per pixel
             double halfViewPx = Math.Min(viewportWidth, viewportHeight) / 2.0;
-            double metersPerPixel = radiusMeters / halfViewPx;
+            double metersPerPixel = mapRadiusMeters / halfViewPx;
 
             // Convert to pixel coordinates
             double px = viewportWidth / 2.0 + (dxMeters / metersPerPixel);
             double py = viewportHeight / 2.0 - (dyMeters / metersPerPixel);
 
             return (px, py);
+        }
+
+
+        public Coordinate FromPixelEquirectangular(
+    double px, double py,
+    double centerLat, double centerLon,
+    int viewportWidth, int viewportHeight,
+    double mapRadiusMeters)
+        {
+            // helper: meters per degree
+            void MetersPerDegree(double latDeg, out double mPerDegLat, out double mPerDegLon)
+            {
+                double latRad = Math.PI * latDeg / 180.0;
+                mPerDegLat = 111132.954 - 559.822 * Math.Cos(2 * latRad) + 1.175 * Math.Cos(4 * latRad);
+                mPerDegLon = (Math.PI / 180.0) * 6378137.0 * Math.Cos(latRad);
+            }
+
+            // meters per degree at center
+            MetersPerDegree(centerLat, out double mLat, out double mLon);
+
+            // meters per pixel
+            double halfViewPx = Math.Min(viewportWidth, viewportHeight) / 2.0;
+            double metersPerPixel = mapRadiusMeters / halfViewPx;
+
+            // dx/dy in meters relative to center
+            double dxMeters = (px - viewportWidth / 2.0) * metersPerPixel;
+            double dyMeters = (viewportHeight / 2.0 - py) * metersPerPixel;
+
+            // convert back to lat/lon
+            double lat = centerLat + (dyMeters / mLat);
+            double lon = centerLon + (dxMeters / mLon);
+
+            return new Coordinate(lat, lon);
         }
 
         List<SectorRegion> readCoordinates(string filename, List<RegionColor> regionColors)
@@ -294,8 +329,6 @@ namespace EuroScope_Setup
             List<SectorRegion> sectorRegions = readCoordinates("sectorfile.sct", regionColors);
 
 
-            var centerCoordinate = new Coordinate(47.43566192997341, 19.25721003945266);
-            double radiusMeters = 2000;
 
 
 
@@ -315,8 +348,8 @@ namespace EuroScope_Setup
                 {
                     var locOnScreen = ToPixelEquirectangular(
                     coord.Lat, coord.Lon,
-                    centerCoordinate.Lat, centerCoordinate.Lon,
-                    Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), radiusMeters);
+                    mapCenterCoordinate.Lat, mapCenterCoordinate.Lon,
+                    Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), mapRadiusMeters);
 
                     Point screenCoord = new Point(locOnScreen.px, locOnScreen.py);
                     Console.WriteLine($"Lat: {coord.Lat:F9}, Lon: {coord.Lon:F9} -> X: {locOnScreen.px:F1}, Y: {locOnScreen.py:F1}");
@@ -332,7 +365,12 @@ namespace EuroScope_Setup
         private void MapProjection_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {
             var point = e.GetPosition(MapProjection);
-            MessageBox.Show($"X: {point.X}, Y: {point.Y}");
+
+            Coordinate clickedCoordinate = FromPixelEquirectangular(
+                point.X, point.Y,
+                mapCenterCoordinate.Lat, mapCenterCoordinate.Lon,
+                Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), mapRadiusMeters);
+            Trace.WriteLine($"X: {point.X}, Y: {point.Y}\n{clickedCoordinate.Lat}, {clickedCoordinate.Lon}");
         }
     }
 }
