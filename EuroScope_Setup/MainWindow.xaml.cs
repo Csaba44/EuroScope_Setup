@@ -1,9 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 
@@ -11,6 +13,27 @@ namespace EuroScope_Setup
 {
     public partial class MainWindow : Window
     {
+
+        public class RegionColor
+        {
+            public string name { get; private set; }
+            public Color color { get; private set; }
+
+            private Color IntToColor(int value)
+            {
+                byte r = (byte)(value & 0xFF);
+                byte g = (byte)((value >> 8) & 0xFF);
+                byte b = (byte)((value >> 16) & 0xFF);
+                return Color.FromRgb(r, g, b);
+            }
+
+            public RegionColor(string name, int colorInt)
+            {
+                this.name = name;
+                this.color = IntToColor(colorInt);
+            }
+        }
+
         public class Coordinate
         {
             public double Lat { get; set; }
@@ -23,8 +46,29 @@ namespace EuroScope_Setup
             }
         }
 
+        public class SectorRegion
+        {
+            public string name { get; private set; }
+            public Color color { get; private set; }
+            public List<Coordinate> coordinates { get; private set; } = new List<Coordinate>();
+
+            public SectorRegion(string name, Color color)
+            {
+                this.name = name;
+                this.color = color;
+            }   
+
+            public void addCoordinate(string coordinate)
+            {
+                Coordinate coord = ParseCoordinate(coordinate);
+                coordinates.Add(coord); 
+            }
+        }
+
+
+
         // Function to convert DMS (Degrees, Minutes, Seconds) to decimal degrees
-        double DmsToDecimal(string dmsString)
+        public static double DmsToDecimal(string dmsString)
         {
             // Remove N/S/E/W prefix and split by dots
             string cleanString = dmsString.Substring(1);
@@ -49,43 +93,38 @@ namespace EuroScope_Setup
         }
 
         // Function to parse the coordinate data
-        List<Coordinate> ParseCoordinates(string[] coordinateLines)
+        public static Coordinate? ParseCoordinate(string coordinateLine)
         {
-            var coordinates = new List<Coordinate>();
+            if (string.IsNullOrWhiteSpace(coordinateLine))
+                return null;
 
-            foreach (string line in coordinateLines)
+            string[] parts = coordinateLine.Trim()
+                .Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length < 2)
+                return null;
+
+            string latString = parts[parts.Length - 2];
+            string lonString = parts[parts.Length - 1];
+
+            if ((latString.StartsWith("N") || latString.StartsWith("S")) &&
+                (lonString.StartsWith("E") || lonString.StartsWith("W")))
             {
-                string trimmedLine = line.Trim();
-                if (string.IsNullOrEmpty(trimmedLine)) continue;
-
-                // Split by space and find the coordinate parts
-                string[] parts = trimmedLine.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-
-                if (parts.Length >= 2)
+                try
                 {
-                    // The last two parts should be the coordinates
-                    string latString = parts[parts.Length - 2];
-                    string lonString = parts[parts.Length - 1];
-
-                    if (latString.StartsWith("N") || latString.StartsWith("S") &&
-                        lonString.StartsWith("E") || lonString.StartsWith("W"))
-                    {
-                        try
-                        {
-                            double lat = DmsToDecimal(latString);
-                            double lon = DmsToDecimal(lonString);
-                            coordinates.Add(new Coordinate(lat, lon));
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine($"Error parsing coordinates: {latString} {lonString} - {ex.Message}");
-                        }
-                    }
+                    double lat = DmsToDecimal(latString);
+                    double lon = DmsToDecimal(lonString);
+                    return new Coordinate(lat, lon);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error parsing coordinate: {latString} {lonString} - {ex.Message}");
                 }
             }
 
-            return coordinates;
+            return null;
         }
+
 
         // Function to convert geographic coordinates to pixel coordinates
         (double px, double py) ToPixelEquirectangular(
@@ -118,66 +157,182 @@ namespace EuroScope_Setup
             return (px, py);
         }
 
-        string[] readCoordinates(string filename)
+        List<SectorRegion> readCoordinates(string filename, List<RegionColor> regionColors)
         {
-            string[] coordinateData = File.ReadAllLines(filename);
-            return coordinateData;
+            /*string[] coordinateData = File.ReadAllLines(filename);
+            return coordinateData;*/
+
+            List<SectorRegion> sectorRegions = new List<SectorRegion>();
+
+            StreamReader reader = new StreamReader(filename);
+
+            bool inRegions = false; 
+
+            SectorRegion currentRegion = null;
+
+            while (!reader.EndOfStream)
+            {
+                string line = reader.ReadLine();
+                if (line.Contains("[REGIONS]")) inRegions = true;
+                
+                if (inRegions)
+                {
+                    // New sector region beginning
+                    if (line.Contains("REGIONNAME"))
+                    {
+                        if (currentRegion != null)
+                        {
+                            sectorRegions.Add(currentRegion);
+                        }
+
+                        string regionName = line.Split(' ')[2];
+
+                        string line2 = reader.ReadLine();
+
+                        string[] line2Split = line2.Split(' ');
+                        string regionColor = line2Split[0];
+
+                        regionColor = regionColor.Replace(" ", "");
+                        regionColor = regionColor.Replace("COLOR_", "");
+
+                        Color regionFillColor;
+
+                        foreach (var rColor in regionColors)
+                        {
+                            if (rColor.name == regionColor)
+                            {
+                                regionFillColor = rColor.color;
+                                break;
+                            }
+                        }
+
+                        string firstCoordinate = "";
+
+                        for (int i = 1; i < line2Split.Length; i++)
+                        {
+                            if (line2Split[i].StartsWith("N") || line2Split[i].StartsWith("S"))
+                            {
+                                firstCoordinate = line2Split[i] + " " + line2Split[i + 1];
+
+                                break;
+                            }
+                        }
+
+                        currentRegion = new SectorRegion(regionName, regionFillColor);
+                        currentRegion.addCoordinate(firstCoordinate);
+                    } else
+                    {
+                        if (currentRegion != null)
+                        {
+                            string[] lineSplit = line.Split(' ');
+
+                            string coordinate = "";
+
+                            for (int i = 0; i < lineSplit.Length; i++)
+                            {
+                                if (lineSplit[i].StartsWith("N") || lineSplit[i].StartsWith("S"))
+                                {
+                                    coordinate = lineSplit[i] + " " + lineSplit[i + 1];
+
+                                    break;
+                                }
+                            }
+                            if (coordinate != "")
+                            {
+                                currentRegion.addCoordinate(coordinate);
+                            }
+                            
+                        }
+                    }
+
+                    
+                }
+            }
             
-        } 
+            return sectorRegions;
+        }
+
+        List<RegionColor> readSectorColors(string filename)
+        {
+            List<RegionColor> regionColors = new List<RegionColor>();
+
+            StreamReader reader = new StreamReader(filename);
+
+            bool definesStarted = false;
+
+            while (!reader.EndOfStream)
+            {
+                string line = reader.ReadLine();
+
+                if (line.Contains("#define COLOR_"))
+                {
+                    definesStarted = true;
+                    string[] lineSplit = line.Split(' ');
+
+                    string name = lineSplit[1].Replace("COLOR_", "");
+                    int colorInt = int.Parse(lineSplit[lineSplit.Length - 1]);
+
+                    RegionColor regionColor = new RegionColor(name, colorInt);
+                    regionColors.Add(regionColor);
+                }
+
+                if (definesStarted && !line.Contains("#define COLOR_"))
+                {
+                    Console.WriteLine(line);
+                    break;
+                }
+            }
+
+            return regionColors;
+        }
 
         public MainWindow()
         {
             InitializeComponent();
 
-            string[] coordinateData = readCoordinates("coords.txt");
+            List<RegionColor> regionColors = readSectorColors("sectorfile.sct");
+            List<SectorRegion> sectorRegions = readCoordinates("sectorfile.sct", regionColors);
 
-            List<Coordinate> coordinates = ParseCoordinates(coordinateData);
 
-            var centerCoordinate = new Coordinate(47.43292231467408, 19.261434807795617);
+            var centerCoordinate = new Coordinate(47.43566192997341, 19.25721003945266);
             double radiusMeters = 2000;
-            int width = 1280;
-            int height = 720;
 
-            var screenCoords = new List<Point>();
-            foreach (var coord in coordinates)
+
+
+
+            foreach (var sector in sectorRegions)
             {
-                var locOnScreen = ToPixelEquirectangular(
+
+                var polygon1 = new Polygon();
+
+                polygon1.Fill = new SolidColorBrush(sector.color);
+
+                polygon1.StrokeThickness = 1;
+                
+                var pointCollection1 = new PointCollection();
+
+                foreach (var coord in sector.coordinates)
+                {
+                    var locOnScreen = ToPixelEquirectangular(
                     coord.Lat, coord.Lon,
                     centerCoordinate.Lat, centerCoordinate.Lon,
-                    width, height, radiusMeters);
+                    Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), radiusMeters);
 
-                screenCoords.Add(new Point(locOnScreen.px, locOnScreen.py));
-                Console.WriteLine($"Lat: {coord.Lat:F9}, Lon: {coord.Lon:F9} -> X: {locOnScreen.px:F1}, Y: {locOnScreen.py:F1}");
+                    Point screenCoord = new Point(locOnScreen.px, locOnScreen.py);
+                    Console.WriteLine($"Lat: {coord.Lat:F9}, Lon: {coord.Lon:F9} -> X: {locOnScreen.px:F1}, Y: {locOnScreen.py:F1}");
+                    pointCollection1.Add(screenCoord);
+                }
+
+                polygon1.Points = pointCollection1;
+                MapProjection.Children.Add(polygon1);
+
             }
+        }
 
-            var polygon1 = new Polygon();
-            polygon1.Stroke = Brushes.Gray;
-            polygon1.Fill = Brushes.Gray;
-            polygon1.StrokeThickness = 2;
-
-            var pointCollection1 = new PointCollection();
-            foreach (var screenCoord in screenCoords) 
-            {
-                pointCollection1.Add(screenCoord);
-            }
-            polygon1.Points = pointCollection1;
-
-            MapProjection.Children.Add(polygon1);
-
-            /*foreach (var screenCoord in screenCoords)
-            {
-                var marker = new Ellipse
-                {
-                    Width = 4,
-                    Height = 4,
-                    Fill = Brushes.Blue,
-                    Stroke = Brushes.DarkBlue,
-                    StrokeThickness = 1
-                };
-                Canvas.SetLeft(marker, screenCoord.X - 2);
-                Canvas.SetTop(marker, screenCoord.Y - 2);
-                MapProjection.Children.Add(marker);
-            }*/
+        private void MapProjection_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var point = e.GetPosition(MapProjection);
+            MessageBox.Show($"X: {point.X}, Y: {point.Y}");
         }
     }
 }

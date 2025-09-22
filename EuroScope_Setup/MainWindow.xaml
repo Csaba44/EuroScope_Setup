@@ -5,9 +5,9 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:EuroScope_Setup"
         mc:Ignorable="d"
-        Title="EuroScope Setup - vACCHUN" Height="720" Width="1280">
+        Title="EuroScope Setup - vACCHUN" Width="1366" Height="768">
     <Grid>
-        <Canvas Name="MapProjection">
+        <Canvas Name="MapProjection" MouseLeftButtonDown="MapProjection_MouseLeftButtonDown">
             
         </Canvas>
     </Grid>
