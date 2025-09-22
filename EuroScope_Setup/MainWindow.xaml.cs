@@ -16,6 +16,11 @@ namespace EuroScope_Setup
         public static Coordinate mapCenterCoordinate = new Coordinate(47.43566192997341, 19.25721003945266);
         public static double mapRadiusMeters = 2000;
 
+
+        public static List<RegionColor> regionColors = readSectorColors("sectorfile.sct");
+        public static List<SectorRegion> sectorRegions = readCoordinates("sectorfile.sct", regionColors);
+        public static List<PolygonRegion> polygonRegions = new List<PolygonRegion>();
+
         public class RegionColor
         {
             public string name { get; private set; }
@@ -67,7 +72,17 @@ namespace EuroScope_Setup
             }
         }
 
+        public class PolygonRegion
+        {
+            public string name { get; private set; }
+            public Polygon Polygon { get; private set; }
 
+            public PolygonRegion(string name, Polygon polygon)
+            {
+                this.name = name;
+                this.Polygon = polygon;
+            }
+        }
 
         // Function to convert DMS (Degrees, Minutes, Seconds) to decimal degrees
         public static double DmsToDecimal(string dmsString)
@@ -192,7 +207,7 @@ namespace EuroScope_Setup
             return new Coordinate(lat, lon);
         }
 
-        List<SectorRegion> readCoordinates(string filename, List<RegionColor> regionColors)
+        public static List<SectorRegion> readCoordinates(string filename, List<RegionColor> regionColors)
         {
             /*string[] coordinateData = File.ReadAllLines(filename);
             return coordinateData;*/
@@ -287,7 +302,7 @@ namespace EuroScope_Setup
             return sectorRegions;
         }
 
-        List<RegionColor> readSectorColors(string filename)
+        public static List<RegionColor> readSectorColors(string filename)
         {
             List<RegionColor> regionColors = new List<RegionColor>();
 
@@ -321,15 +336,43 @@ namespace EuroScope_Setup
             return regionColors;
         }
 
+        public static bool IsPointInPolygon(Coordinate point, List<Coordinate> polygon)
+        {
+            if (polygon == null || polygon.Count < 3)
+                return false;
+
+            bool inside = false;
+            int n = polygon.Count;
+
+            for (int i = 0, j = n - 1; i < n; j = i++)
+            {
+                Coordinate vi = polygon[i];
+                Coordinate vj = polygon[j];
+
+                // Check if point is on a vertex
+                if (vi.Lat == point.Lat && vi.Lon == point.Lon)
+                    return true;
+
+                // Check if point is on horizontal edge
+                if ((vi.Lat == point.Lat && vj.Lat == point.Lat) &&
+                    ((vi.Lon <= point.Lon && point.Lon <= vj.Lon) ||
+                     (vj.Lon <= point.Lon && point.Lon <= vi.Lon)))
+                    return true;
+
+                // Ray casting algorithm
+                if ((vi.Lat > point.Lat) != (vj.Lat > point.Lat) &&
+                    point.Lon < (vj.Lon - vi.Lon) * (point.Lat - vi.Lat) / (vj.Lat - vi.Lat) + vi.Lon)
+                {
+                    inside = !inside;
+                }
+            }
+
+            return inside;
+        }
+
         public MainWindow()
         {
             InitializeComponent();
-
-            List<RegionColor> regionColors = readSectorColors("sectorfile.sct");
-            List<SectorRegion> sectorRegions = readCoordinates("sectorfile.sct", regionColors);
-
-
-
 
 
 
@@ -339,6 +382,7 @@ namespace EuroScope_Setup
                 var polygon1 = new Polygon();
 
                 polygon1.Fill = new SolidColorBrush(sector.color);
+                polygon1.Visibility = sector.name.ToUpper().Contains("XCLS") ? Visibility.Hidden : Visibility.Visible;
 
                 polygon1.StrokeThickness = 1;
                 
@@ -352,11 +396,11 @@ namespace EuroScope_Setup
                     Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), mapRadiusMeters);
 
                     Point screenCoord = new Point(locOnScreen.px, locOnScreen.py);
-                    Console.WriteLine($"Lat: {coord.Lat:F9}, Lon: {coord.Lon:F9} -> X: {locOnScreen.px:F1}, Y: {locOnScreen.py:F1}");
                     pointCollection1.Add(screenCoord);
                 }
 
                 polygon1.Points = pointCollection1;
+                polygonRegions.Add(new PolygonRegion(sector.name, polygon1));
                 MapProjection.Children.Add(polygon1);
 
             }
@@ -370,7 +414,56 @@ namespace EuroScope_Setup
                 point.X, point.Y,
                 mapCenterCoordinate.Lat, mapCenterCoordinate.Lon,
                 Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), mapRadiusMeters);
-            Trace.WriteLine($"X: {point.X}, Y: {point.Y}\n{clickedCoordinate.Lat}, {clickedCoordinate.Lon}");
+
+            foreach (var sector in sectorRegions)
+            {
+                if (IsPointInPolygon(clickedCoordinate, sector.coordinates) && sector.name.ToUpper().Contains("XCLS"))
+                {
+                    Trace.WriteLine($"Clicked inside sector: {sector.name}");
+
+                    foreach (var poly in polygonRegions)
+                    {
+                        if (poly.name == sector.name)
+                        {
+                            poly.Polygon.Visibility = poly.Polygon.Visibility == Visibility.Visible ? Visibility.Hidden : Visibility.Visible;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void saveButton_Click(object sender, RoutedEventArgs e)
+        {
+            List<string> xclsToSave = new List<string>();
+
+            string savePath = "C:\\Users\\Csaba\\AppData\\Roaming\\EuroScope\\LHCC\\ASR\\A-SMGCS2506.asr";
+
+            foreach (var poly in polygonRegions)
+            {
+                if (poly.Polygon.Visibility == Visibility.Visible && poly.name.ToUpper().Contains("XCLS"))
+                {
+                    xclsToSave.Add(poly.name);
+                }
+            }
+
+
+            List<string> lines = File.ReadAllLines(savePath).ToList();
+
+            using (StreamWriter writer = new StreamWriter(savePath))
+            {
+                foreach (string line in lines)
+                {
+                    if (!line.Contains("XCLS"))
+                    {
+                        writer.WriteLine(line);
+                    }
+                }
+
+                foreach (var xcls in xclsToSave)
+                {
+                    writer.WriteLine($"Regions:LHBP {xcls}:polygon");
+                }
+            }
         }
     }
 }

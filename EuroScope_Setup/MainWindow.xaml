@@ -7,8 +7,8 @@
         mc:Ignorable="d"
         Title="EuroScope Setup - vACCHUN" Width="1366" Height="768">
     <Grid>
-        <Canvas Name="MapProjection" MouseLeftButtonDown="MapProjection_MouseLeftButtonDown">
-            
-        </Canvas>
+        <Canvas Name="MapProjection" MouseLeftButtonDown="MapProjection_MouseLeftButtonDown"/>
+        <Button Content="Save" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
+            Margin="10" Width="60" Height="30" Name="saveButton" Click="saveButton_Click"/>
     </Grid>
 </Window>
