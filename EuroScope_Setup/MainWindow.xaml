@@ -5,10 +5,12 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:EuroScope_Setup"
         mc:Ignorable="d"
-        Title="EuroScope Setup - vACCHUN" Width="1366" Height="768">
+        Title="EuroScope Setup - vACCHUN" Width="1366" Height="768" Icon="/Images/vacchun.ico">
     <Grid>
         <Canvas Name="MapProjection" MouseLeftButtonDown="MapProjection_MouseLeftButtonDown"/>
         <Button Content="Save" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
-            Margin="10" Width="60" Height="30" Name="saveButton" Click="saveButton_Click"/>
+            Margin="10,0,0,10" Width="90" Height="30" Name="saveButton" Click="saveButton_Click"/>
+        <Button Content="Show closeable" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
+            Margin="10,0,0,45" Width="90" Height="30" x:Name="showCloseableButton" Click="showCloseableButton_Click"/>
     </Grid>
 </Window>

@@ -1,6 +1,8 @@
-﻿using System;
+﻿using Microsoft.Win32;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -8,6 +10,8 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
+using Color = System.Windows.Media.Color;
+using Point = System.Windows.Point;
 
 namespace EuroScope_Setup
 {
@@ -15,11 +19,16 @@ namespace EuroScope_Setup
     {
         public static Coordinate mapCenterCoordinate = new Coordinate(47.43566192997341, 19.25721003945266);
         public static double mapRadiusMeters = 2000;
+        public static string[] regionsToShow;
 
+        public static string sectorFilePath;
+        public static string asmgcsFilePath;
 
-        public static List<RegionColor> regionColors = readSectorColors("sectorfile.sct");
-        public static List<SectorRegion> sectorRegions = readCoordinates("sectorfile.sct", regionColors);
+        public static List<RegionColor> regionColors;
+        public static List<SectorRegion> sectorRegions;
         public static List<PolygonRegion> polygonRegions = new List<PolygonRegion>();
+
+        public static SolidColorBrush nonClosedColor = new SolidColorBrush(Color.FromArgb(90, 255, 99, 99));
 
         public class RegionColor
         {
@@ -370,22 +379,158 @@ namespace EuroScope_Setup
             return inside;
         }
 
+        public static Dictionary<string, object> ParseConfigFile(string filePath)
+        {
+            var config = new Dictionary<string, object>();
+
+            foreach (string line in File.ReadAllLines(filePath))
+            {
+                if (string.IsNullOrWhiteSpace(line) || !line.Contains("="))
+                    continue;
+
+                string[] parts = line.Split('=', 2);
+                if (parts.Length == 2)
+                {
+                    string key = parts[0].Trim('"').Trim();
+                    string value = parts[1].Trim('"').Trim();
+
+                    if (value.Contains(";"))
+                    {
+                        string[] items = value.Split(';', StringSplitOptions.RemoveEmptyEntries);
+                        config[key] = items.Select(item => item.Trim()).ToArray();
+                    }
+                    else
+                    {
+                        config[key] = value;
+                    }
+                }
+            }
+
+            return config;
+        }
+
+
+        private void SaveConfigFile(string filePath, Dictionary<string, object> config)
+        {
+            using (StreamWriter writer = new StreamWriter(filePath))
+            {
+                foreach (var kvp in config)
+                {
+                    if (kvp.Value is string stringValue)
+                    {
+                        writer.WriteLine($"{kvp.Key}=\"{stringValue}\"");
+                    }
+                    else if (kvp.Value is string[] arrayValue && arrayValue.Length > 0)
+                    {
+                        string joinedValue = string.Join(";", arrayValue);
+                        writer.WriteLine($"{kvp.Key}=\"{joinedValue}\"");
+                    }
+                }
+            }
+        }
+
+        private void initConfig()
+        {
+            var config = ParseConfigFile("settings.cfg");
+            bool configUpdated = false;
+
+            // Handle SECTORFILE
+            sectorFilePath = config["SECTORFILE"] as string;
+            if (string.IsNullOrEmpty(sectorFilePath))
+            {
+                sectorFilePath = BrowseForFile("Select Sector File", "SCT files (*.sct)|*.sct");
+                if (!string.IsNullOrEmpty(sectorFilePath))
+                {
+                    config["SECTORFILE"] = sectorFilePath;
+                    configUpdated = true;
+                }
+            }
+
+            // Handle ASMGCS
+            asmgcsFilePath = config["ASMGCS"] as string;
+            if (string.IsNullOrEmpty(asmgcsFilePath))
+            {
+                asmgcsFilePath = BrowseForFile("Select ASMGCS File", "ASR files (*.asr)|*.asr");
+                if (!string.IsNullOrEmpty(asmgcsFilePath))
+                {
+                    config["ASMGCS"] = asmgcsFilePath;
+                    configUpdated = true;
+                }
+            }
+
+            // Handle REGIONS_TO_SHOW
+            regionsToShow = config["REGIONS_TO_SHOW"] as string[] ?? Array.Empty<string>();
+
+            // Save config if updated
+            if (configUpdated)
+            {
+                SaveConfigFile("settings.cfg", config);
+            }
+        }
+
+
+        private string BrowseForFile(string title, string filter)
+        {
+            var openFileDialog = new OpenFileDialog
+            {
+                Title = title,
+                Filter = filter,
+                CheckFileExists = true,
+                CheckPathExists = true,
+                Multiselect = false
+            };
+
+            if (openFileDialog.ShowDialog() == true)
+            {
+                return openFileDialog.FileName;
+            }
+
+            return string.Empty;
+        }
+
         public MainWindow()
         {
             InitializeComponent();
+            initConfig();
+
+
+
+            regionColors = readSectorColors(sectorFilePath);
+            sectorRegions = readCoordinates(sectorFilePath, regionColors);
 
 
 
             foreach (var sector in sectorRegions)
             {
+                bool isXCLS = sector.name.ToUpper().Contains("XCLS");
+
+
+
+                bool showSector = false;
+
+
+                foreach (var region in regionsToShow)
+                {
+                    if (sector.name.ToUpper().Contains(region.ToUpper()))
+                    {
+                        showSector = true;
+                        break;
+                    }
+                }
 
                 var polygon1 = new Polygon();
 
-                polygon1.Fill = new SolidColorBrush(sector.color);
-                polygon1.Visibility = sector.name.ToUpper().Contains("XCLS") ? Visibility.Hidden : Visibility.Visible;
+
+                polygon1.Visibility = showSector || isXCLS ? Visibility.Visible : Visibility.Hidden;
+                polygon1.Cursor = isXCLS ? Cursors.Hand : Cursors.Arrow;
 
                 polygon1.StrokeThickness = 1;
-                
+
+
+                polygon1.Fill = !isXCLS ? new SolidColorBrush(sector.color) : nonClosedColor;
+
+                polygon1.DataContext = "no-save";
+
                 var pointCollection1 = new PointCollection();
 
                 foreach (var coord in sector.coordinates)
@@ -425,7 +570,17 @@ namespace EuroScope_Setup
                     {
                         if (poly.name == sector.name)
                         {
-                            poly.Polygon.Visibility = poly.Polygon.Visibility == Visibility.Visible ? Visibility.Hidden : Visibility.Visible;
+                            if (poly.Polygon.DataContext == "no-save")
+                            {
+                                poly.Polygon.DataContext = "save";
+                                poly.Polygon.Fill = new SolidColorBrush(sector.color);
+
+                            } else
+                            {
+                                poly.Polygon.DataContext = "no-save";
+                                poly.Polygon.Fill = nonClosedColor;
+                            }
+                            //poly.Polygon.Visibility = poly.Polygon.Visibility == Visibility.Visible ? Visibility.Hidden : Visibility.Visible;
                         }
                     }
                 }
@@ -436,20 +591,19 @@ namespace EuroScope_Setup
         {
             List<string> xclsToSave = new List<string>();
 
-            string savePath = "C:\\Users\\Csaba\\AppData\\Roaming\\EuroScope\\LHCC\\ASR\\A-SMGCS2506.asr";
 
             foreach (var poly in polygonRegions)
             {
-                if (poly.Polygon.Visibility == Visibility.Visible && poly.name.ToUpper().Contains("XCLS"))
+                if (poly.Polygon.DataContext == "save" && poly.name.ToUpper().Contains("XCLS"))
                 {
                     xclsToSave.Add(poly.name);
                 }
             }
 
 
-            List<string> lines = File.ReadAllLines(savePath).ToList();
+            List<string> lines = File.ReadAllLines(asmgcsFilePath).ToList();
 
-            using (StreamWriter writer = new StreamWriter(savePath))
+            using (StreamWriter writer = new StreamWriter(asmgcsFilePath))
             {
                 foreach (string line in lines)
                 {
@@ -462,6 +616,23 @@ namespace EuroScope_Setup
                 foreach (var xcls in xclsToSave)
                 {
                     writer.WriteLine($"Regions:LHBP {xcls}:polygon");
+                }
+            }
+        }
+
+        private void showCloseableButton_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var poly in polygonRegions)
+            {
+                if (poly.Polygon.DataContext == "no-save" && poly.name.ToUpper().Contains("XCLS"))
+                {
+                    if (poly.Polygon.Fill == nonClosedColor)
+                    {
+                        poly.Polygon.Fill = new SolidColorBrush(Colors.Transparent);
+                    } else
+                    {
+                        poly.Polygon.Fill = nonClosedColor;
+                    }
                 }
             }
         }
