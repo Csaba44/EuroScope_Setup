@@ -14,6 +14,8 @@ using Color = System.Windows.Media.Color;
 using Point = System.Windows.Point;
 using static EuroScope_Setup.Helpers.ConfigHelper;
 using static EuroScope_Setup.Helpers.CoordinateHelper;
+using static EuroScope_Setup.Helpers.ActiveAircraftHelper;
+using EuroScope_Setup.Helpers;
 
 namespace EuroScope_Setup
 {
@@ -52,17 +54,6 @@ namespace EuroScope_Setup
             }
         }
 
-        public class Coordinate
-        {
-            public double Lat { get; set; }
-            public double Lon { get; set; }
-
-            public Coordinate(double lat, double lon)
-            {
-                Lat = lat;
-                Lon = lon;
-            }
-        }
 
         public class SectorRegion
         {
@@ -283,12 +274,48 @@ namespace EuroScope_Setup
             return string.Empty;
         }
 
+        private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        {
+
+            var helper = await ActiveAircraftHelper.CreateAsync(mapRadiusMeters, mapCenterCoordinate);
+            List<Aircraft> aircraftList = helper.getAircraftOnGround();
+
+            foreach (var aircraft in aircraftList)
+            {
+                var locOnScreen = ToPixelEquirectangular(
+                  aircraft.coordinate.Lat, aircraft.coordinate.Lon,
+                  mapCenterCoordinate.Lat, mapCenterCoordinate.Lon,
+                  Convert.ToInt32(this.Width), Convert.ToInt32(this.Height), mapRadiusMeters);
+
+                Ellipse ellipse = new Ellipse
+                {
+                    Width = 10,
+                    Height = 10,
+                    Fill = new SolidColorBrush(Colors.Blue),
+                    Stroke = new SolidColorBrush(Colors.White),
+                    StrokeThickness = 1,
+                    ToolTip = $"{aircraft.callsign} ({aircraft.altitude} ft)",
+
+                };
+                Canvas.SetLeft(ellipse, locOnScreen.px - 5);
+                Canvas.SetTop(ellipse, locOnScreen.py - 5);
+
+
+                Trace.WriteLine($"{aircraft.name} added to {locOnScreen.px}x{locOnScreen.py}.");
+
+
+                MapProjection.Children.Add(ellipse);
+            }
+        }
+
         public MainWindow()
         {
             InitializeComponent();
             initConfig();
+            this.Loaded += MainWindow_Loaded;
 
 
+           
 
             regionColors = readSectorColors(sectorFilePath);
             sectorRegions = readCoordinates(sectorFilePath, regionColors);
@@ -340,8 +367,8 @@ namespace EuroScope_Setup
                 polygon1.Points = pointCollection1;
                 polygonRegions.Add(new PolygonRegion(sector.name, polygon1));
                 MapProjection.Children.Add(polygon1);
-
             }
+
         }
 
         private void MapProjection_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)

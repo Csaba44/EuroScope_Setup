@@ -10,8 +10,20 @@ using System.Drawing;
 
 namespace EuroScope_Setup.Helpers
 {
-    class CoordinateHelper
+    public class CoordinateHelper
     {
+
+        public class Coordinate
+        {
+            public double Lat { get; set; }
+            public double Lon { get; set; }
+
+            public Coordinate(double lat, double lon)
+            {
+                Lat = lat;
+                Lon = lon;
+            }
+        }
 
         public static bool IsPointInPolygon(Coordinate point, List<Coordinate> polygon)
         {
