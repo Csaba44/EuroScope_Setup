@@ -12,5 +12,7 @@
             Margin="10,0,0,10" Width="90" Height="30" Name="saveButton" Click="saveButton_Click"/>
         <Button Content="Show closeable" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
             Margin="10,0,0,45" Width="90" Height="30" x:Name="showCloseableButton" Click="showCloseableButton_Click"/>
+        <Button Content="ILS Sens. Area" HorizontalAlignment="Left" VerticalAlignment="Bottom" 
+            Margin="10,0,0,80" Width="90" Height="30" x:Name="toggleILSSensitive" Click="toggleILSSensitive_Click"/>
     </Grid>
 </Window>

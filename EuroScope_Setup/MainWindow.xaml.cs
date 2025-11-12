@@ -277,7 +277,7 @@ namespace EuroScope_Setup
         private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
         {
 
-            var helper = await ActiveAircraftHelper.CreateAsync(mapRadiusMeters, mapCenterCoordinate);
+            /*var helper = await ActiveAircraftHelper.CreateAsync(mapRadiusMeters, mapCenterCoordinate);
             List<Aircraft> aircraftList = helper.getAircraftOnGround();
 
             foreach (var aircraft in aircraftList)
@@ -305,7 +305,7 @@ namespace EuroScope_Setup
 
 
                 MapProjection.Children.Add(ellipse);
-            }
+            }*/
         }
 
         public MainWindow()
@@ -325,12 +325,19 @@ namespace EuroScope_Setup
             foreach (var sector in sectorRegions)
             {
                 bool isXCLS = sector.name.ToUpper().Contains("XCLS");
+                bool isILSSensitive = sector.name.ToUpper().Contains("XAGR_ILS_SENSITIVE_A");
 
                 bool showSector = false;
 
 
                 foreach (var region in regionsToShow)
                 {
+                    if (isILSSensitive)
+                    {
+                        showSector = true;
+                        break;
+                    }
+
                     if (sector.name.ToUpper().Contains(region.ToUpper()))
                     {
                         showSector = true;
@@ -350,6 +357,7 @@ namespace EuroScope_Setup
                 polygon1.Fill = !isXCLS ? new SolidColorBrush(sector.color) : nonClosedColor;
 
                 polygon1.DataContext = "no-save";
+                polygon1.Visibility = isILSSensitive ? Visibility.Hidden : polygon1.Visibility;
 
                 var pointCollection1 = new PointCollection();
 
@@ -414,8 +422,10 @@ namespace EuroScope_Setup
 
             foreach (var poly in polygonRegions)
             {
-                if (poly.Polygon.DataContext == "save" && poly.name.ToUpper().Contains("XCLS"))
+                if (poly.Polygon.DataContext == "save" && (poly.name.ToUpper().Contains("XCLS") || poly.name.ToUpper().Contains("XAGR_ILS_SENSITIVE_A")))
                 {
+                    Debug.WriteLine("Saving: " + poly.name);
+                    if (xclsToSave.Contains(poly.name)) continue;
                     xclsToSave.Add(poly.name);
                 }
             }
@@ -427,7 +437,7 @@ namespace EuroScope_Setup
             {
                 foreach (string line in lines)
                 {
-                    if (!line.Contains("XCLS"))
+                    if (!line.Contains("XCLS") && !line.Contains("XAGR_ILS_SENSITIVE_A"))
                     {
                         writer.WriteLine(line);
                     }
@@ -453,6 +463,19 @@ namespace EuroScope_Setup
                     {
                         poly.Polygon.Fill = nonClosedColor;
                     }
+                }
+            }
+        }
+
+        private void toggleILSSensitive_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var poly in polygonRegions)
+            {
+                if (poly.name.ToUpper().Contains("XAGR_ILS_SENSITIVE_A"))
+                {
+                    poly.Polygon.Visibility = poly.Polygon.Visibility == Visibility.Visible ? Visibility.Hidden : Visibility.Visible;
+                    poly.Polygon.DataContext = poly.Polygon.DataContext == "no-save" ? "save" : "no-save";
+                    Debug.WriteLine(poly.name + ": " + poly.Polygon.DataContext) ;
                 }
             }
         }
