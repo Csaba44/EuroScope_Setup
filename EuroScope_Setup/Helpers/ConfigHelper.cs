@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -28,6 +29,7 @@ namespace EuroScope_Setup.Helpers
                     {
                         string[] items = value.Split(';', StringSplitOptions.RemoveEmptyEntries);
                         config[key] = items.Select(item => item.Trim()).ToArray();
+                        Debug.WriteLine(items[0]);
                     }
                     else
                     {

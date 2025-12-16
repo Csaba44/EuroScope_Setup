@@ -16,6 +16,7 @@ using static EuroScope_Setup.Helpers.ConfigHelper;
 using static EuroScope_Setup.Helpers.CoordinateHelper;
 using static EuroScope_Setup.Helpers.ActiveAircraftHelper;
 using EuroScope_Setup.Helpers;
+using System.Printing;
 
 namespace EuroScope_Setup
 {
@@ -332,6 +333,7 @@ namespace EuroScope_Setup
 
                 foreach (var region in regionsToShow)
                 {
+
                     if (isILSSensitive)
                     {
                         showSector = true;
